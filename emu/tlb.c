@@ -1,14 +1,15 @@
 #include "emu/cpu.h"
 #include "emu/tlb.h"
 
-void tlb_init(struct tlb *tlb, struct mem *mem) {
-    tlb->mem = mem;
+void tlb_init(struct tlb *tlb, struct mmu *mmu) {
+    tlb->mmu = mmu;
     tlb->dirty_page = TLB_PAGE_EMPTY;
-    tlb->mem_changes = mem->changes;
+    tlb->mem_changes = mmu->changes;
     tlb_flush(tlb);
 }
 
 void tlb_flush(struct tlb *tlb) {
+    tlb->mem_changes = tlb->mmu->changes;
     for (unsigned i = 0; i < TLB_SIZE; i++)
         tlb->entries[i] = (struct tlb_entry) {.page = 1, .page_if_writable = 1};
 }
@@ -42,12 +43,11 @@ bool __tlb_write_cross_page(struct tlb *tlb, addr_t addr, const char *value, uns
 }
 
 __no_instrument void *tlb_handle_miss(struct tlb *tlb, addr_t addr, int type) {
-    unsigned changes = tlb->mem->changes;
-    char *ptr = mem_ptr(tlb->mem, TLB_PAGE(addr), type);
+    char *ptr = mmu_translate(tlb->mmu, TLB_PAGE(addr), type);
+    if (tlb->mmu->changes != tlb->mem_changes)
+        tlb_flush(tlb);
     if (ptr == NULL)
         return NULL;
-    if (tlb->mem->changes != changes)
-        tlb_flush(tlb);
     tlb->dirty_page = TLB_PAGE(addr);
 
     struct tlb_entry *tlb_ent = &tlb->entries[TLB_INDEX(addr)];
